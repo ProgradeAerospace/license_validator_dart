@@ -54,4 +54,45 @@ void main() {
     final state = await validator.bootstrap();
     expect(state.phase, ValidatorStatePhase.activated);
   });
+
+  test('signInAndActivate: signs in (with Origin), activates, stores JWT, returns ACTIVATED', () async {
+    final signer = await TestSigner.generate();
+    const nowSec = 1714694400;
+    final jwt = await signer.navmathJwt(iatSec: nowSec - 5, expSec: nowSec + 99999);
+    final seenPaths = <String>[];
+    String? authOrigin;
+    final client = MockClient((req) async {
+      seenPaths.add(req.url.path);
+      if (req.url.path == '/api/auth/sign-in/mobile') {
+        authOrigin = req.headers['origin'];
+        return http.Response(jsonEncode({'token': 'tok'}), 200);
+      }
+      if (req.url.path == '/.well-known/jwks.json') {
+        return http.Response(jsonEncode(signer.jwksDocument()), 200);
+      }
+      if (req.url.path == '/api/licenses/activate') {
+        return http.Response(jsonEncode({
+          'jwt': jwt, 'expiresAt': 'x', 'statusUrl': '/s', 'refreshAfter': 'x',
+          'slotNumber': 0, 'minValidatorVersion': '0.1.0',
+          'license': {'scope': 'app', 'appsIncluded': ['navmath']},
+        }), 200);
+      }
+      return http.Response('nf', 404);
+    });
+    final store = InMemorySecureStore();
+    final validator = LicenseValidator(
+      config: ValidatorConfig(
+        portalBaseUrl: Uri.parse('https://portal.prograde.aero'), expectedAudience: 'navmath'),
+      secureStore: store, jwksStore: InMemoryKeyValueStore(), httpClient: client,
+      now: () => DateTime.fromMillisecondsSinceEpoch(nowSec * 1000, isUtc: true),
+      readMdmConfig: () async => null,
+    );
+    final state = await validator.signInAndActivate(
+      email: 'a@b.com', password: 'pw',
+      fingerprint: fp(), clientVersion: '1.0.0');
+    expect(state.phase, ValidatorStatePhase.activated);
+    expect(authOrigin, 'https://portal.prograde.aero');
+    expect(await store.read(kJwtStorageKey), jwt);
+    expect(seenPaths.contains('/api/auth/sign-in/mobile'), isTrue);
+  });
 }

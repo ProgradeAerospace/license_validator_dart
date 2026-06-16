@@ -1,5 +1,6 @@
 import 'package:http/http.dart' as http;
 import 'activation.dart';
+import 'auth.dart';
 import 'config.dart';
 import 'fingerprint.dart';
 import 'jwks.dart';
@@ -33,7 +34,8 @@ class LicenseValidator {
           now: now,
         ),
         _activation = ActivationClient(baseUrl: config.portalBaseUrl, client: httpClient),
-        _status = StatusClient(baseUrl: config.portalBaseUrl, client: httpClient);
+        _status = StatusClient(baseUrl: config.portalBaseUrl, client: httpClient),
+        _auth = AuthClient(baseUrl: config.portalBaseUrl, client: httpClient);
 
   final ValidatorConfig config;
   final SecureStore _secureStore;
@@ -42,6 +44,7 @@ class LicenseValidator {
   final JwksCache _jwks;
   final ActivationClient _activation;
   final StatusClient _status;
+  final AuthClient _auth;
 
   Future<ValidatorState> bootstrap() => FirstLaunchStateMachine(
         secureStore: _secureStore,
@@ -78,6 +81,36 @@ class LicenseValidator {
     );
     await _secureStore.write(kJwtStorageKey, res.jwt);
     return res;
+  }
+
+  /// Sign in with email+password, activate this device, store the JWT, and
+  /// return the resulting ACTIVATED state. Throws [LicenseException] on failure.
+  Future<ValidatorState> signInAndActivate({
+    required String email,
+    required String password,
+    required DeviceFingerprint fingerprint,
+    required String clientVersion,
+  }) async {
+    final token = await _auth.signIn(email: email, password: password);
+    await activateWithSession(
+        token: token, fingerprint: fingerprint, clientVersion: clientVersion);
+    return bootstrap();
+  }
+
+  /// Redeem an invite (sets the account password), activate, store the JWT, and
+  /// return the resulting ACTIVATED state. Throws [LicenseException] on failure.
+  Future<ValidatorState> redeemInviteAndActivate({
+    required String code,
+    required String password,
+    required String displayName,
+    required DeviceFingerprint fingerprint,
+    required String clientVersion,
+  }) async {
+    final token = await _auth.redeemInvite(
+        code: code, password: password, displayName: displayName);
+    await activateWithSession(
+        token: token, fingerprint: fingerprint, clientVersion: clientVersion);
+    return bootstrap();
   }
 
   /// Polls status for the currently-stored JWT. Returns null if no JWT stored.
