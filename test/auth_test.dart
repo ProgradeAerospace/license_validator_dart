@@ -58,4 +58,32 @@ void main() {
     final c = AuthClient(baseUrl: Uri.parse('https://p'), client: MockClient((_) async => http.Response('{}', 200)));
     expect(await code(() => c.signIn(email: 'a', password: 'b')), ActivationErrorCode.networkUnreachable);
   });
+
+  test('signIn 400 generic -> unknown code with "check your details" message', () async {
+    final c = AuthClient(
+      baseUrl: Uri.parse('https://p'),
+      client: MockClient((_) async => http.Response(jsonEncode({'error': 'invalid_body'}), 400)),
+    );
+    try {
+      await c.signIn(email: 'a', password: 'b');
+      fail('expected LicenseException');
+    } on LicenseException catch (e) {
+      expect(e.error.code, ActivationErrorCode.unknown);
+      expect(e.error.userMessage, contains('check your details'));
+    }
+  });
+
+  test('redeemInvite 400 weak_password -> unknown code with "stronger password" message', () async {
+    final c = AuthClient(
+      baseUrl: Uri.parse('https://p'),
+      client: MockClient((_) async => http.Response(jsonEncode({'error': 'weak_password'}), 400)),
+    );
+    try {
+      await c.redeemInvite(code: 'x', password: 'p', displayName: 'd');
+      fail('expected LicenseException');
+    } on LicenseException catch (e) {
+      expect(e.error.code, ActivationErrorCode.unknown);
+      expect(e.error.userMessage, contains('stronger password'));
+    }
+  });
 }

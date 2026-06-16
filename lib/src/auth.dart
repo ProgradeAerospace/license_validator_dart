@@ -50,8 +50,27 @@ class AuthClient {
     if (res.statusCode >= 500) {
       throw LicenseException(ActivationError.fromCode(ActivationErrorCode.networkUnreachable));
     }
-    // 400/401/409/410 from auth routes → treat as a session/credential problem the
-    // user can correct by re-entering details or signing in again.
+    if (res.statusCode == 401 || res.statusCode == 409 || res.statusCode == 410) {
+      throw LicenseException(ActivationError.fromCode(ActivationErrorCode.invalidSession));
+    }
+    if (res.statusCode == 400) {
+      String? errorCode;
+      try {
+        final json = jsonDecode(res.body) as Map<String, dynamic>;
+        errorCode = (json['error'] ?? json['code']) as String?;
+      } catch (_) {/* ignore parse errors */}
+      if (errorCode == 'weak_password') {
+        throw LicenseException(ActivationError.fromCode(
+          ActivationErrorCode.unknown,
+          userMessage: 'Password is too weak. Please choose a stronger password.',
+        ));
+      }
+      throw LicenseException(ActivationError.fromCode(
+        ActivationErrorCode.unknown,
+        userMessage: 'Please check your details and try again.',
+      ));
+    }
+    // any other non-200 status → treat as session/credential problem
     throw LicenseException(ActivationError.fromCode(ActivationErrorCode.invalidSession));
   }
 }
