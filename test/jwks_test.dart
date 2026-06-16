@@ -17,6 +17,17 @@ void main() {
     expect(doc.keyForKid('nope'), isNull);
   });
 
+  test('keyForKid skips key with malformed x (length != 32) -> returns null', () {
+    // Build a JWKS doc whose only key has a 10-byte x value (base64url-encoded)
+    final shortX = base64Url.encode(List.filled(10, 0xFF)).replaceAll('=', '');
+    final doc = JwksDocument.fromJson({
+      'keys': [
+        {'kid': kTestKid, 'kty': 'OKP', 'crv': 'Ed25519', 'x': shortX, 'alg': 'EdDSA', 'use': 'sig', 'status': 'current'},
+      ],
+    });
+    expect(doc.keyForKid(kTestKid), isNull);
+  });
+
   test('cache fetches once within TTL, refetches after expiry', () async {
     var calls = 0;
     final client = MockClient((req) async {

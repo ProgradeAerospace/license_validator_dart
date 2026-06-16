@@ -29,7 +29,7 @@ class JwksDocument {
 
   Jwk? keyForKid(String kid) {
     for (final k in keys) {
-      if (k.kid == kid) return k;
+      if (k.kid == kid && k.x.length == 32) return k;
     }
     return null;
   }

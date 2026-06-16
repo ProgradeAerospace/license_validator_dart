@@ -25,6 +25,14 @@ class JwtClaims {
 Never _fail(ActivationErrorCode code) =>
     throw LicenseException(ActivationError.fromCode(code));
 
+bool _hasValidClaimShape(Map<String, dynamic> p) =>
+    p['iss'] is String &&
+    p['aud'] is String &&
+    p['iat'] is int &&
+    p['exp'] is int &&
+    p['license_id'] is String &&
+    p['slot_number'] is int;
+
 class JwtVerifier {
   JwtVerifier({
     required this.expectedIssuer,
@@ -64,6 +72,11 @@ class JwtVerifier {
     // 3. verify Ed25519 signature over "header.payload"
     final ok = await _verifySignature(parts, jwk);
     if (!ok) _fail(ActivationErrorCode.invalidSignature);
+
+    // 3a. guard required claim types before accessing getters
+    if (!_hasValidClaimShape(payload)) {
+      _fail(ActivationErrorCode.invalidSignature);
+    }
 
     final claims = JwtClaims(payload);
     final tol = clockTolerance.inSeconds;

@@ -34,13 +34,17 @@ class ActivationResult {
   final List<String> appsIncluded;
 
   factory ActivationResult.fromJson(Map<String, dynamic> j) {
+    final jwtVal = j['jwt'];
+    if (jwtVal == null) {
+      throw const FormatException('missing jwt');
+    }
     final lic = (j['license'] as Map<String, dynamic>?) ?? const {};
     return ActivationResult(
-      jwt: j['jwt'] as String,
+      jwt: jwtVal as String,
       expiresAt: j['expiresAt'] as String,
       statusUrl: j['statusUrl'] as String,
       refreshAfter: j['refreshAfter'] as String,
-      slotNumber: j['slotNumber'] as int,
+      slotNumber: (j['slotNumber'] as num).toInt(),
       minValidatorVersion: j['minValidatorVersion'] as String,
       scope: (lic['scope'] == 'bundle') ? LicenseScope.bundle : LicenseScope.app,
       appsIncluded: ((lic['appsIncluded'] as List?) ?? const []).map((e) => e as String).toList(),
@@ -78,7 +82,11 @@ class ActivationClient {
     }
 
     if (res.statusCode == 200) {
-      return ActivationResult.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+      try {
+        return ActivationResult.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+      } catch (_) {
+        throw LicenseException(ActivationError.fromCode(ActivationErrorCode.networkUnreachable));
+      }
     }
     throw LicenseException(_mapError(res));
   }

@@ -94,4 +94,12 @@ void main() {
   test('5xx -> networkUnreachable', () async {
     expect(await codeFor(() => http.Response('boom', 503)), ActivationErrorCode.networkUnreachable);
   });
+
+  test('200 with empty body {} (missing jwt) -> networkUnreachable (not TypeError)', () async {
+    expect(
+      await codeFor(() => http.Response(jsonEncode(<String, dynamic>{}), 200,
+          headers: {'content-type': 'application/json'})),
+      ActivationErrorCode.networkUnreachable,
+    );
+  });
 }

@@ -84,4 +84,46 @@ void main() {
     final claims = await verifierAt(nowSec).verify(jwt, jwks, skipExpCheck: true);
     expect(claims.licenseId, 'license-uuid-abc');
   });
+
+  test('signed JWT missing exp -> invalidSignature (not TypeError)', () async {
+    final jwt = await signer.signJwt(
+      {'alg': 'EdDSA', 'typ': 'JWT', 'kid': kTestKid},
+      {
+        'iss': 'https://portal.prograde.aero',
+        'aud': 'navmath',
+        'sub': 'device-uuid-xyz',
+        'iat': nowSec,
+        // 'exp' intentionally omitted
+        'license_id': 'license-uuid-abc',
+        'org_id': 'org-uuid',
+        'slot_number': 0,
+        'auth_method': 'session',
+      },
+    );
+    expect(
+      await codeFor(() => verifierAt(nowSec).verify(jwt, jwks)),
+      ActivationErrorCode.invalidSignature,
+    );
+  });
+
+  test('signed JWT with iat as String -> invalidSignature (not TypeError)', () async {
+    final jwt = await signer.signJwt(
+      {'alg': 'EdDSA', 'typ': 'JWT', 'kid': kTestKid},
+      {
+        'iss': 'https://portal.prograde.aero',
+        'aud': 'navmath',
+        'sub': 'device-uuid-xyz',
+        'iat': '1714608000', // String instead of int
+        'exp': nowSec + 9999999,
+        'license_id': 'license-uuid-abc',
+        'org_id': 'org-uuid',
+        'slot_number': 0,
+        'auth_method': 'session',
+      },
+    );
+    expect(
+      await codeFor(() => verifierAt(nowSec).verify(jwt, jwks)),
+      ActivationErrorCode.invalidSignature,
+    );
+  });
 }

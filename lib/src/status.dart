@@ -52,7 +52,14 @@ class StatusClient {
       throw LicenseException(ActivationError.fromCode(ActivationErrorCode.networkUnreachable));
     }
     if (res.statusCode == 200) {
-      return LicenseStatus.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+      try {
+        return LicenseStatus.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+      } catch (_) {
+        throw LicenseException(ActivationError.fromCode(ActivationErrorCode.networkUnreachable));
+      }
+    }
+    if (res.statusCode == 401) {
+      throw LicenseException(ActivationError.fromCode(ActivationErrorCode.invalidSession));
     }
     if (res.statusCode == 429) {
       throw LicenseException(ActivationError.fromCode(ActivationErrorCode.rateLimited));
