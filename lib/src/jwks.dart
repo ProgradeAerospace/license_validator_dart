@@ -65,7 +65,7 @@ class JwksCache {
         fetchedAtMs != null &&
         nowMs - fetchedAtMs < ttl.inMilliseconds;
 
-    if (fresh) return JwksDocument.fromJson(jsonDecode(cachedRaw!) as Map<String, dynamic>);
+    if (fresh) return JwksDocument.fromJson(jsonDecode(cachedRaw) as Map<String, dynamic>);
 
     try {
       final res = await client.get(baseUrl.resolve('/.well-known/jwks.json'));

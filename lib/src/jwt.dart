@@ -62,7 +62,7 @@ class JwtVerifier {
     if (jwk == null) _fail(ActivationErrorCode.invalidKid);
 
     // 3. verify Ed25519 signature over "header.payload"
-    final ok = await _verifySignature(parts, jwk!);
+    final ok = await _verifySignature(parts, jwk);
     if (!ok) _fail(ActivationErrorCode.invalidSignature);
 
     final claims = JwtClaims(payload);
@@ -70,15 +70,13 @@ class JwtVerifier {
     final nowSec = now().millisecondsSinceEpoch ~/ 1000;
 
     // 4. issuer
-    if (claims.iss != expectedIssuer) _fail(ActivationErrorCode.invalidIssuer);
+    if (claims.iss != expectedIssuer) { _fail(ActivationErrorCode.invalidIssuer); }
     // 5. audience
-    if (claims.aud != expectedAudience)
-      _fail(ActivationErrorCode.invalidAudience);
+    if (claims.aud != expectedAudience) { _fail(ActivationErrorCode.invalidAudience); }
     // 6. exp (skippable for status endpoint)
-    if (!skipExpCheck && claims.exp <= nowSec - tol)
-      _fail(ActivationErrorCode.licenseExpired);
+    if (!skipExpCheck && claims.exp <= nowSec - tol) { _fail(ActivationErrorCode.licenseExpired); }
     // 7. iat not far-future (anti-replay)
-    if (claims.iat > nowSec + tol) _fail(ActivationErrorCode.invalidIat);
+    if (claims.iat > nowSec + tol) { _fail(ActivationErrorCode.invalidIat); }
 
     return claims;
   }

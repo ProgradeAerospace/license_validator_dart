@@ -6,7 +6,6 @@ import 'package:prograde_license_validator/src/validator.dart';
 import 'package:prograde_license_validator/src/config.dart';
 import 'package:prograde_license_validator/src/storage.dart';
 import 'package:prograde_license_validator/src/fingerprint.dart';
-import 'package:prograde_license_validator/src/activation.dart';
 import 'package:prograde_license_validator/src/state_machine.dart';
 import 'support/test_keys.dart';
 
@@ -17,7 +16,7 @@ DeviceFingerprint fp() => DeviceFingerprint(
 void main() {
   test('activateWithSession stores JWT and bootstrap then reports ACTIVATED', () async {
     final signer = await TestSigner.generate();
-    final nowSec = 1714694400;
+    const nowSec = 1714694400;
     final jwt = await signer.navmathJwt(iatSec: nowSec - 5, expSec: nowSec + 99999);
 
     final client = MockClient((req) async {

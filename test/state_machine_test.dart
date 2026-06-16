@@ -3,7 +3,6 @@ import 'package:prograde_license_validator/src/state_machine.dart';
 import 'package:prograde_license_validator/src/jwt.dart';
 import 'package:prograde_license_validator/src/jwks.dart';
 import 'package:prograde_license_validator/src/storage.dart';
-import 'package:prograde_license_validator/src/errors.dart';
 import 'support/test_keys.dart';
 
 void main() {
