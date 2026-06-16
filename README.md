@@ -141,6 +141,16 @@ flutter test test/integration_test_local/e2e_local_test.dart
 
 ---
 
+## Portal integration notes
+
+- **Activation request body:** `clientVersion` is sent **inside** the `fingerprint` object (not at the top level of the request body), matching the portal `/api/licenses/activate` route contract. The body shape is `{ "appId": "...", "fingerprint": { ...device fields..., "clientVersion": "..." } }`.
+
+- **Auth routes (`/api/auth/redeem-invite/mobile`, `/api/auth/sign-in/mobile`):** Callers **must** send an `Origin: <portal origin>` header — Neon Auth (Better Auth) CSRF rejects server-side calls without it with `403 "Missing or null Origin"`. The validator's own `/api/licenses/activate` and `/api/licenses/:id/status` calls do **not** go through Neon Auth and do not need this header, but the app's onboarding and sign-in screens (e.g. in NavMath) must send it.
+
+- **`statusUrl` in activation response:** The `statusUrl` field returned by activate may be an absolute URL. The validator ignores it and uses the `license_id` claim from the signed JWT for all status polling — this is already the implemented behaviour.
+
+---
+
 ## Status
 
 **Phase 1 complete** — sign-in / user-account activation path is fully implemented and tested.

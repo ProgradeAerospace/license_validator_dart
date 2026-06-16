@@ -65,6 +65,8 @@ class ActivationClient {
   }) async {
     http.Response res;
     try {
+      final fpJson = fingerprint.toActivationJson();
+      (fpJson['fingerprint'] as Map<String, dynamic>)['clientVersion'] = clientVersion;
       res = await client.post(
         baseUrl.resolve('/api/licenses/activate'),
         headers: {
@@ -72,9 +74,8 @@ class ActivationClient {
           'content-type': 'application/json',
         },
         body: jsonEncode({
-          ...fingerprint.toActivationJson(),
+          ...fpJson,
           'appId': appId,
-          'clientVersion': clientVersion,
         }),
       );
     } catch (_) {

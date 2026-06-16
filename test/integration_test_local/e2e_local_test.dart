@@ -23,9 +23,10 @@ void main() {
     final client = http.Client();
 
     // 1. redeem invite -> bearer token
+    // Neon Auth (Better Auth) CSRF requires an Origin header on server-side auth calls.
     final redeem = await client.post(
       Uri.parse('$portal/api/auth/redeem-invite/mobile'),
-      headers: {'content-type': 'application/json'},
+      headers: {'content-type': 'application/json', 'origin': portal},
       body: '{"code":"$inviteCode","password":"$password","displayName":"E2E Pilot"}',
     );
     expect(redeem.statusCode, 200, reason: redeem.body);

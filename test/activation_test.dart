@@ -36,6 +36,8 @@ void main() {
         fingerprint: fp(), appId: 'navmath', clientVersion: '1.0.0');
     expect(seen.headers['authorization'], 'Bearer tok-123');
     expect(jsonDecode(seen.body)['appId'], 'navmath');
+    expect(jsonDecode(seen.body)['fingerprint']['clientVersion'], '1.0.0');
+    expect(jsonDecode(seen.body)['clientVersion'], isNull);
     expect(res.jwt, 'eyJ.a.b');
     expect(res.scope, LicenseScope.app);
     expect(res.appsIncluded, ['navmath']);
