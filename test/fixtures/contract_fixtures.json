@@ -1,0 +1,13 @@
+{
+  "mdm": [
+    {"name": "v1_with_key_parses", "raw": {"schemaVersion": 1, "licenseKey": "lk_a1b2c3d4e5f607182930415263748596", "portalEnvironment": "production", "preActivate": true}, "expect": {"licenseKey": "lk_a1b2c3d4e5f607182930415263748596", "portalEnvironment": "production", "preActivate": true}},
+    {"name": "unknown_schema_null", "raw": {"schemaVersion": 99, "licenseKey": "lk_a1b2c3d4e5f607182930415263748596"}, "expect": null},
+    {"name": "malformed_key_null", "raw": {"schemaVersion": 1, "licenseKey": "not_a_valid_key"}, "expect": null},
+    {"name": "unknown_env_to_production", "raw": {"schemaVersion": 1, "licenseKey": "lk_a1b2c3d4e5f607182930415263748596", "portalEnvironment": "narnia"}, "expect": {"portalEnvironment": "production"}}
+  ],
+  "activationErrors": [
+    {"name": "cap_exceeded", "status": 409, "body": {"code": "cap_exceeded", "cap": 40, "used": 40}, "expect": {"code": "cap_exceeded", "recoverable": false, "suggestedAction": "releaseDevice", "cap": 40, "used": 40}},
+    {"name": "invalid_session", "status": 401, "body": {"code": "invalid_session"}, "expect": {"code": "invalid_session", "recoverable": true, "suggestedAction": "signInAgain"}},
+    {"name": "5xx_network", "status": 503, "body": null, "expect": {"code": "network_unreachable", "recoverable": true, "suggestedAction": "waitAndRetry"}}
+  ]
+}
