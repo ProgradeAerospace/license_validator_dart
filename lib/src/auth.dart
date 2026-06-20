@@ -14,7 +14,11 @@ class AuthClient {
   String get _origin => '${baseUrl.scheme}://${baseUrl.authority}';
 
   Future<String> signIn({required String email, required String password}) {
-    return _postForToken('/api/auth/sign-in/mobile', {'email': email, 'password': password});
+    return _postForToken(
+      '/api/auth/sign-in/mobile',
+      {'email': email, 'password': password},
+      on401: ActivationErrorCode.invalidCredentials,
+    );
   }
 
   Future<String> redeemInvite({
@@ -22,11 +26,77 @@ class AuthClient {
     required String password,
     required String displayName,
   }) {
-    return _postForToken('/api/auth/redeem-invite/mobile',
-        {'code': code, 'password': password, 'displayName': displayName});
+    return _postForToken(
+      '/api/auth/redeem-invite/mobile',
+      {'code': code, 'password': password, 'displayName': displayName},
+      on401: ActivationErrorCode.invalidSession,
+    );
   }
 
-  Future<String> _postForToken(String path, Map<String, dynamic> body) async {
+  /// Refreshes (slides) the mobile session, returning a fresh token. The current
+  /// session token authenticates the call (Bearer). Throws [LicenseException]
+  /// with `invalidSession` when the session is expired/revoked, or
+  /// `networkUnreachable` on transport/5xx.
+  Future<String> refresh(String sessionToken) async {
+    http.Response res;
+    try {
+      res = await client.post(
+        baseUrl.resolve('/api/auth/refresh/mobile'),
+        headers: {'authorization': 'Bearer $sessionToken'},
+      );
+    } catch (_) {
+      throw LicenseException(
+          ActivationError.fromCode(ActivationErrorCode.networkUnreachable));
+    }
+    if (res.statusCode == 200) {
+      String? token;
+      try {
+        token =
+            (jsonDecode(res.body) as Map<String, dynamic>)['token'] as String?;
+      } catch (_) {/* fallthrough */}
+      if (token == null || token.isEmpty) {
+        throw LicenseException(
+            ActivationError.fromCode(ActivationErrorCode.networkUnreachable));
+      }
+      return token;
+    }
+    if (res.statusCode == 401) {
+      throw LicenseException(
+          ActivationError.fromCode(ActivationErrorCode.invalidSession));
+    }
+    if (res.statusCode >= 500) {
+      throw LicenseException(
+          ActivationError.fromCode(ActivationErrorCode.networkUnreachable));
+    }
+    throw LicenseException(
+        ActivationError.fromCode(ActivationErrorCode.invalidSession));
+  }
+
+  /// Revokes the mobile session server-side (full sign-out). Best-effort: a 401
+  /// (already-invalid session) counts as success; only a transport/5xx error
+  /// throws, so the caller can still clear local state regardless.
+  Future<void> signOut(String sessionToken) async {
+    http.Response res;
+    try {
+      res = await client.post(
+        baseUrl.resolve('/api/auth/sign-out/mobile'),
+        headers: {'authorization': 'Bearer $sessionToken'},
+      );
+    } catch (_) {
+      throw LicenseException(
+          ActivationError.fromCode(ActivationErrorCode.networkUnreachable));
+    }
+    if (res.statusCode >= 200 && res.statusCode < 300) return;
+    if (res.statusCode == 401) return;
+    throw LicenseException(
+        ActivationError.fromCode(ActivationErrorCode.networkUnreachable));
+  }
+
+  Future<String> _postForToken(
+    String path,
+    Map<String, dynamic> body, {
+    required ActivationErrorCode on401,
+  }) async {
     http.Response res;
     try {
       res = await client.post(
@@ -48,17 +118,36 @@ class AuthClient {
       return token;
     }
     if (res.statusCode >= 500) {
-      throw LicenseException(ActivationError.fromCode(ActivationErrorCode.networkUnreachable));
+      // 503 auth_unavailable (provider down / upstream rejected) vs a generic 5xx.
+      throw LicenseException(ActivationError.fromCode(
+        _bodyErrorCode(res.body) == 'auth_unavailable'
+            ? ActivationErrorCode.authUnavailable
+            : ActivationErrorCode.networkUnreachable,
+      ));
     }
-    if (res.statusCode == 401 || res.statusCode == 409 || res.statusCode == 410) {
+    if (res.statusCode == 401) {
+      // The portal distinguishes a credential failure from a proven-password but
+      // inactive account/org. Map each to an accurate message; otherwise fall back
+      // to the caller's default (bad credentials on sign-in, invalid session elsewhere).
+      switch (_bodyErrorCode(res.body)) {
+        case 'account_inactive':
+          throw LicenseException(
+              ActivationError.fromCode(ActivationErrorCode.accountInactive));
+        case 'org_inactive':
+          throw LicenseException(
+              ActivationError.fromCode(ActivationErrorCode.orgInactive));
+        default:
+          throw LicenseException(ActivationError.fromCode(on401));
+      }
+    }
+    if (res.statusCode == 429) {
+      throw LicenseException(ActivationError.fromCode(ActivationErrorCode.rateLimited));
+    }
+    if (res.statusCode == 409 || res.statusCode == 410) {
       throw LicenseException(ActivationError.fromCode(ActivationErrorCode.invalidSession));
     }
     if (res.statusCode == 400) {
-      String? errorCode;
-      try {
-        final json = jsonDecode(res.body) as Map<String, dynamic>;
-        errorCode = (json['error'] ?? json['code']) as String?;
-      } catch (_) {/* ignore parse errors */}
+      final errorCode = _bodyErrorCode(res.body);
       if (errorCode == 'weak_password') {
         throw LicenseException(ActivationError.fromCode(
           ActivationErrorCode.unknown,
@@ -72,5 +161,16 @@ class AuthClient {
     }
     // any other non-200 status → treat as session/credential problem
     throw LicenseException(ActivationError.fromCode(ActivationErrorCode.invalidSession));
+  }
+
+  /// Extracts the portal's machine error code from a JSON body (`error` or
+  /// `code`), or null if absent/unparseable.
+  String? _bodyErrorCode(String body) {
+    try {
+      final json = jsonDecode(body) as Map<String, dynamic>;
+      return (json['error'] ?? json['code']) as String?;
+    } catch (_) {
+      return null;
+    }
   }
 }

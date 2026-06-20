@@ -39,14 +39,39 @@ void main() {
     on LicenseException catch (e) { return e.error.code; }
   }
 
-  test('signIn 401 -> invalidSession', () async {
+  test('signIn 401 -> invalidCredentials (wrong email/password)', () async {
     final c = AuthClient(baseUrl: Uri.parse('https://p'), client: MockClient((_) async => http.Response('{}', 401)));
-    expect(await code(() => c.signIn(email: 'a', password: 'b')), ActivationErrorCode.invalidSession);
+    expect(await code(() => c.signIn(email: 'a', password: 'b')), ActivationErrorCode.invalidCredentials);
+  });
+
+  test('redeemInvite 401 -> invalidSession (not a credential field)', () async {
+    final c = AuthClient(baseUrl: Uri.parse('https://p'), client: MockClient((_) async => http.Response('{}', 401)));
+    expect(await code(() => c.redeemInvite(code: 'x', password: 'p', displayName: 'd')), ActivationErrorCode.invalidSession);
   });
 
   test('signIn 5xx -> networkUnreachable', () async {
     final c = AuthClient(baseUrl: Uri.parse('https://p'), client: MockClient((_) async => http.Response('x', 503)));
     expect(await code(() => c.signIn(email: 'a', password: 'b')), ActivationErrorCode.networkUnreachable);
+  });
+
+  test('signIn 401 account_inactive -> accountInactive', () async {
+    final c = AuthClient(baseUrl: Uri.parse('https://p'), client: MockClient((_) async => http.Response(jsonEncode({'error': 'account_inactive'}), 401)));
+    expect(await code(() => c.signIn(email: 'a', password: 'b')), ActivationErrorCode.accountInactive);
+  });
+
+  test('signIn 401 org_inactive -> orgInactive', () async {
+    final c = AuthClient(baseUrl: Uri.parse('https://p'), client: MockClient((_) async => http.Response(jsonEncode({'error': 'org_inactive'}), 401)));
+    expect(await code(() => c.signIn(email: 'a', password: 'b')), ActivationErrorCode.orgInactive);
+  });
+
+  test('signIn 503 auth_unavailable -> authUnavailable', () async {
+    final c = AuthClient(baseUrl: Uri.parse('https://p'), client: MockClient((_) async => http.Response(jsonEncode({'error': 'auth_unavailable'}), 503)));
+    expect(await code(() => c.signIn(email: 'a', password: 'b')), ActivationErrorCode.authUnavailable);
+  });
+
+  test('signIn 429 -> rateLimited', () async {
+    final c = AuthClient(baseUrl: Uri.parse('https://p'), client: MockClient((_) async => http.Response(jsonEncode({'error': 'rate_limited'}), 429)));
+    expect(await code(() => c.signIn(email: 'a', password: 'b')), ActivationErrorCode.rateLimited);
   });
 
   test('redeemInvite 409 -> invalidSession (already redeemed/invalid)', () async {

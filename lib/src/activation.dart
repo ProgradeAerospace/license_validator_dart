@@ -62,6 +62,9 @@ class ActivationClient {
     required DeviceFingerprint fingerprint,
     required String appId,
     required String clientVersion,
+    // When false, the portal activates ONLY against a seat already allocated to
+    // this device and will not allocate a new one (silent relaunch / poll).
+    bool allocate = true,
   }) async {
     http.Response res;
     try {
@@ -76,6 +79,7 @@ class ActivationClient {
         body: jsonEncode({
           ...fpJson,
           'appId': appId,
+          'allocate': allocate,
         }),
       );
     } catch (_) {
@@ -100,7 +104,10 @@ class ActivationClient {
     try {
       body = jsonDecode(res.body) as Map<String, dynamic>;
     } catch (_) {/* non-JSON error body */}
-    final code = activationErrorCodeFromWire(body['code'] as String?);
+    // Portal sends the machine code under `code` (contract) and mirrors it in
+    // `error`; accept either so mapping is robust across portal versions.
+    final code = activationErrorCodeFromWire(
+        (body['code'] ?? body['error']) as String?);
     return ActivationError.fromCode(
       code,
       meta: ActivationErrorMeta(

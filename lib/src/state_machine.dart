@@ -4,7 +4,15 @@ import 'jwt.dart';
 import 'mdm_config.dart';
 import 'storage.dart';
 
-enum ValidatorStatePhase { activated, awaitingUserActivation, awaitingUserOnboarding, error }
+enum ValidatorStatePhase {
+  activated,
+  // Signed in, but this device holds no allocated seat. The app stays locked and
+  // waits for an admin to allocate a licence (poll), or for the user to grab one.
+  awaitingLicence,
+  awaitingUserActivation,
+  awaitingUserOnboarding,
+  error
+}
 
 class ValidatorState {
   ValidatorState._(this.phase, {this.claims, this.mdmConfig, this.error});
@@ -15,6 +23,8 @@ class ValidatorState {
 
   factory ValidatorState.activated(JwtClaims claims) =>
       ValidatorState._(ValidatorStatePhase.activated, claims: claims);
+  factory ValidatorState.awaitingLicence() =>
+      ValidatorState._(ValidatorStatePhase.awaitingLicence);
   factory ValidatorState.awaitingUserActivation(MdmConfig c) =>
       ValidatorState._(ValidatorStatePhase.awaitingUserActivation, mdmConfig: c);
   factory ValidatorState.awaitingUserOnboarding() =>
@@ -24,6 +34,23 @@ class ValidatorState {
 }
 
 const kJwtStorageKey = 'license.jwt';
+
+/// Persisted mobile auth session token (from `/api/auth/sign-in/mobile`). Kept
+/// so a launch with no usable license JWT can silently re-activate (and so the
+/// session can be refreshed/revoked) without prompting for credentials again.
+const kSessionStorageKey = 'auth.session';
+
+/// Verification-class failures that indicate an integrity/config problem (as
+/// opposed to a normal expiry or a transient network/JWKS error). When a cached
+/// JWT fails for one of these, the FSM surfaces an error instead of silently
+/// routing to onboarding.
+const _verificationFailures = {
+  ActivationErrorCode.invalidSignature,
+  ActivationErrorCode.invalidIssuer,
+  ActivationErrorCode.invalidAudience,
+  ActivationErrorCode.invalidKid,
+  ActivationErrorCode.invalidIat,
+};
 
 class FirstLaunchStateMachine {
   FirstLaunchStateMachine({
@@ -48,8 +75,16 @@ class FirstLaunchStateMachine {
         final jwks = await loadJwks();
         final claims = await verifier.verify(cached, jwks);
         return ValidatorState.activated(claims);
-      } on LicenseException {
-        // fall through: invalid/expired cached JWT
+      } on LicenseException catch (e) {
+        // A cached JWT that fails *verification* (bad signature/issuer/audience/
+        // kid/iat) signals an integrity or config problem — surface it rather than
+        // letting it masquerade as a clean first launch (which silently routes to
+        // onboarding with no diagnostic). Expiry (the offline cliff) and transient
+        // network/JWKS errors fall through so the user can re-onboard / retry.
+        if (_verificationFailures.contains(e.error.code)) {
+          return ValidatorState.error(e.error);
+        }
+        // fall through: expired or transient cached-JWT error
       }
     }
 
