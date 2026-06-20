@@ -77,7 +77,7 @@ import 'package:prograde_license_validator/src/mdm_config.dart';
 Future<LicenseValidator> buildValidator() async {
   return LicenseValidator(
     config: ValidatorConfig(
-      portalBaseUrl: Uri.parse('https://portal.prograde.aero'),
+      portalBaseUrl: Uri.parse('https://portal.progradeaerospace.com.au'),
       expectedAudience: 'navmath',
     ),
     secureStore: FlutterSecureStore(),
