@@ -4,7 +4,15 @@ import 'jwt.dart';
 import 'mdm_config.dart';
 import 'storage.dart';
 
-enum ValidatorStatePhase { activated, awaitingUserActivation, awaitingUserOnboarding, error }
+enum ValidatorStatePhase {
+  activated,
+  // Signed in, but this device holds no allocated seat. The app stays locked and
+  // waits for an admin to allocate a licence (poll), or for the user to grab one.
+  awaitingLicence,
+  awaitingUserActivation,
+  awaitingUserOnboarding,
+  error
+}
 
 class ValidatorState {
   ValidatorState._(this.phase, {this.claims, this.mdmConfig, this.error});
@@ -15,6 +23,8 @@ class ValidatorState {
 
   factory ValidatorState.activated(JwtClaims claims) =>
       ValidatorState._(ValidatorStatePhase.activated, claims: claims);
+  factory ValidatorState.awaitingLicence() =>
+      ValidatorState._(ValidatorStatePhase.awaitingLicence);
   factory ValidatorState.awaitingUserActivation(MdmConfig c) =>
       ValidatorState._(ValidatorStatePhase.awaitingUserActivation, mdmConfig: c);
   factory ValidatorState.awaitingUserOnboarding() =>

@@ -317,4 +317,184 @@ void main() {
         fingerprint: fp(), clientVersion: '1.0.0');
     expect(state.phase, ValidatorStatePhase.awaitingUserOnboarding);
   });
+
+  test('bootstrapOrReactivate → AWAITING_LICENCE when no seat is allocated (no auto-grab)', () async {
+    final seenAllocate = <bool>[];
+    final client = MockClient((req) async {
+      if (req.url.path == '/api/auth/refresh/mobile') {
+        return http.Response(jsonEncode({'token': 'fresh', 'expiresAt': 'x'}), 200);
+      }
+      if (req.url.path == '/api/licenses/activate') {
+        seenAllocate.add((jsonDecode(req.body) as Map)['allocate'] as bool);
+        return http.Response(
+            jsonEncode({'code': 'no_licence_allocated', 'recoverable': true}), 409);
+      }
+      return http.Response('nf', 404);
+    });
+    final store = InMemorySecureStore()..write(kSessionStorageKey, 'sess-tok');
+    final validator = LicenseValidator(
+      config: ValidatorConfig(
+          portalBaseUrl: Uri.parse('https://portal.prograde.aero'), expectedAudience: 'navmath'),
+      secureStore: store, jwksStore: InMemoryKeyValueStore(), httpClient: client,
+      readMdmConfig: () async => null,
+    );
+    final state = await validator.bootstrapOrReactivate(
+        fingerprint: fp(), clientVersion: '1.0.0');
+    expect(state.phase, ValidatorStatePhase.awaitingLicence);
+    expect(seenAllocate, [false]); // existing-seat-only: never auto-allocates
+    expect(await store.read(kSessionStorageKey), 'fresh'); // session kept
+  });
+
+  test('checkAllocation unlocks (ACTIVATED) once a seat is allocated', () async {
+    final signer = await TestSigner.generate();
+    const nowSec = 1714694400;
+    final jwt = await signer.navmathJwt(iatSec: nowSec - 5, expSec: nowSec + 99999);
+    final client = MockClient((req) async {
+      if (req.url.path == '/.well-known/jwks.json') {
+        return http.Response(jsonEncode(signer.jwksDocument()), 200);
+      }
+      if (req.url.path == '/api/licenses/activate') {
+        return http.Response(jsonEncode({
+          'jwt': jwt, 'expiresAt': 'x', 'statusUrl': '/s', 'refreshAfter': 'x',
+          'slotNumber': 0, 'minValidatorVersion': '0.1.0',
+          'license': {'scope': 'app', 'appsIncluded': ['navmath']},
+        }), 200);
+      }
+      return http.Response('nf', 404);
+    });
+    final store = InMemorySecureStore()..write(kSessionStorageKey, 'sess-tok');
+    final validator = LicenseValidator(
+      config: ValidatorConfig(
+          portalBaseUrl: Uri.parse('https://portal.prograde.aero'), expectedAudience: 'navmath'),
+      secureStore: store, jwksStore: InMemoryKeyValueStore(), httpClient: client,
+      now: () => DateTime.fromMillisecondsSinceEpoch(nowSec * 1000, isUtc: true),
+      readMdmConfig: () async => null,
+    );
+    final state = await validator.checkAllocation(
+        fingerprint: fp(), clientVersion: '1.0.0');
+    expect(state.phase, ValidatorStatePhase.activated);
+    expect(await store.read(kJwtStorageKey), jwt);
+  });
+
+  test('checkAllocation stays AWAITING_LICENCE while still unallocated', () async {
+    final client = MockClient((req) async {
+      if (req.url.path == '/api/licenses/activate') {
+        return http.Response(
+            jsonEncode({'code': 'no_licence_allocated', 'recoverable': true}), 409);
+      }
+      return http.Response('nf', 404);
+    });
+    final store = InMemorySecureStore()..write(kSessionStorageKey, 'sess-tok');
+    final validator = LicenseValidator(
+      config: ValidatorConfig(
+          portalBaseUrl: Uri.parse('https://portal.prograde.aero'), expectedAudience: 'navmath'),
+      secureStore: store, jwksStore: InMemoryKeyValueStore(), httpClient: client,
+      readMdmConfig: () async => null,
+    );
+    final state = await validator.checkAllocation(
+        fingerprint: fp(), clientVersion: '1.0.0');
+    expect(state.phase, ValidatorStatePhase.awaitingLicence);
+    expect(await store.read(kSessionStorageKey), 'sess-tok'); // kept
+  });
+
+  test('checkAllocation surfaces a terminal error (no_eligible_license) as error', () async {
+    final client = MockClient((req) async {
+      if (req.url.path == '/api/licenses/activate') {
+        return http.Response(
+            jsonEncode({'code': 'no_eligible_license', 'recoverable': false}), 403);
+      }
+      return http.Response('nf', 404);
+    });
+    final store = InMemorySecureStore()..write(kSessionStorageKey, 'sess-tok');
+    final validator = LicenseValidator(
+      config: ValidatorConfig(
+          portalBaseUrl: Uri.parse('https://portal.prograde.aero'), expectedAudience: 'navmath'),
+      secureStore: store, jwksStore: InMemoryKeyValueStore(), httpClient: client,
+      readMdmConfig: () async => null,
+    );
+    final state = await validator.checkAllocation(
+        fingerprint: fp(), clientVersion: '1.0.0');
+    expect(state.phase, ValidatorStatePhase.error);
+    expect(state.error?.code, ActivationErrorCode.noEligibleLicense);
+  });
+
+  test('selfAllocate throws (capExceeded) when no seat is available', () async {
+    final client = MockClient((req) async {
+      if (req.url.path == '/api/auth/refresh/mobile') {
+        return http.Response(jsonEncode({'token': 'fresh', 'expiresAt': 'x'}), 200);
+      }
+      if (req.url.path == '/api/licenses/activate') {
+        return http.Response(
+            jsonEncode({'code': 'cap_exceeded', 'cap': 5, 'used': 5}), 409);
+      }
+      return http.Response('nf', 404);
+    });
+    final store = InMemorySecureStore()..write(kSessionStorageKey, 'sess-tok');
+    final validator = LicenseValidator(
+      config: ValidatorConfig(
+          portalBaseUrl: Uri.parse('https://portal.prograde.aero'), expectedAudience: 'navmath'),
+      secureStore: store, jwksStore: InMemoryKeyValueStore(), httpClient: client,
+      readMdmConfig: () async => null,
+    );
+    await expectLater(
+      validator.selfAllocate(fingerprint: fp(), clientVersion: '1.0.0'),
+      throwsA(isA<LicenseException>()),
+    );
+  });
+
+  test('selfAllocate grabs an available seat and ACTIVATES', () async {
+    final signer = await TestSigner.generate();
+    const nowSec = 1714694400;
+    final jwt = await signer.navmathJwt(iatSec: nowSec - 5, expSec: nowSec + 99999);
+    final seenAllocate = <bool>[];
+    final client = MockClient((req) async {
+      if (req.url.path == '/api/auth/refresh/mobile') {
+        return http.Response(jsonEncode({'token': 'fresh', 'expiresAt': 'x'}), 200);
+      }
+      if (req.url.path == '/.well-known/jwks.json') {
+        return http.Response(jsonEncode(signer.jwksDocument()), 200);
+      }
+      if (req.url.path == '/api/licenses/activate') {
+        seenAllocate.add((jsonDecode(req.body) as Map)['allocate'] as bool);
+        return http.Response(jsonEncode({
+          'jwt': jwt, 'expiresAt': 'x', 'statusUrl': '/s', 'refreshAfter': 'x',
+          'slotNumber': 0, 'minValidatorVersion': '0.1.0',
+          'license': {'scope': 'app', 'appsIncluded': ['navmath']},
+        }), 200);
+      }
+      return http.Response('nf', 404);
+    });
+    final store = InMemorySecureStore()..write(kSessionStorageKey, 'sess-tok');
+    final validator = LicenseValidator(
+      config: ValidatorConfig(
+          portalBaseUrl: Uri.parse('https://portal.prograde.aero'), expectedAudience: 'navmath'),
+      secureStore: store, jwksStore: InMemoryKeyValueStore(), httpClient: client,
+      now: () => DateTime.fromMillisecondsSinceEpoch(nowSec * 1000, isUtc: true),
+      readMdmConfig: () async => null,
+    );
+    final state = await validator.selfAllocate(
+        fingerprint: fp(), clientVersion: '1.0.0');
+    expect(state.phase, ValidatorStatePhase.activated);
+    expect(seenAllocate, [true]); // self-service DOES allocate
+  });
+
+  test('releaseDevice(removeFromOrg: true) posts removeFromOrg and clears JWT', () async {
+    final store = InMemorySecureStore()..write(kJwtStorageKey, 'header.payload.sig');
+    Map<String, dynamic>? seenBody;
+    final client = MockClient((req) async {
+      if (req.url.path == '/api/devices/self/release') {
+        seenBody = jsonDecode(req.body) as Map<String, dynamic>;
+      }
+      return http.Response(jsonEncode({'released': true, 'removedFromOrg': true}), 200);
+    });
+    final validator = LicenseValidator(
+      config: ValidatorConfig(
+          portalBaseUrl: Uri.parse('https://portal.prograde.aero'), expectedAudience: 'navmath'),
+      secureStore: store, jwksStore: InMemoryKeyValueStore(), httpClient: client,
+      readMdmConfig: () async => null,
+    );
+    await validator.releaseDevice(removeFromOrg: true);
+    expect(seenBody?['removeFromOrg'], true);
+    expect(await store.read(kJwtStorageKey), isNull);
+  });
 }

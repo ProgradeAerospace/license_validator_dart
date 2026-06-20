@@ -57,16 +57,15 @@ class LicenseValidator {
         readMdmConfig: _readMdmConfig,
       ).bootstrap();
 
-  /// Cold-launch bootstrap that additionally attempts a SILENT re-activation
-  /// when there is no usable cached license JWT but a stored auth session
-  /// remains — e.g. after "release this device", or once an admin re-assigns a
-  /// licence in the portal. Slides + validates the session, re-activates against
-  /// whatever licence is now assigned, and returns ACTIVATED on success;
-  /// otherwise returns the normal onboarding/MDM state (keeping the session for a
-  /// future retry, unless it proved invalid).
+  /// Cold-launch bootstrap. If there's a usable cached JWT, returns ACTIVATED.
+  /// Otherwise, when a stored auth session remains, it slides the session and
+  /// attempts an EXISTING-SEAT-ONLY activation (never auto-allocates): if a seat
+  /// has been allocated to this device it activates; if not it returns
+  /// AWAITING_LICENCE (signed in, waiting for an admin to allocate). Returns the
+  /// normal onboarding/MDM state only when there is no session at all (or it
+  /// proved invalid).
   ///
-  /// Call this ONLY on app launch — never right after an in-app release, or the
-  /// just-freed seat would be immediately reclaimed.
+  /// Call this ONLY on app launch — never right after an in-app release.
   Future<ValidatorState> bootstrapOrReactivate({
     required DeviceFingerprint fingerprint,
     required String clientVersion,
@@ -77,8 +76,9 @@ class LicenseValidator {
     final session = await _secureStore.read(kSessionStorageKey);
     if (session == null || session.isEmpty) return state;
 
-    // Slide + validate the session. A proven-dead session (401) is cleared;
-    // transient/offline errors leave it for a later launch to retry.
+    // Slide + validate the session. A proven-dead session (401) is cleared and
+    // routes to onboarding; transient/offline errors keep the session and show
+    // AWAITING_LICENCE so the screen can retry.
     String token;
     try {
       token = await _auth.refresh(session);
@@ -86,18 +86,96 @@ class LicenseValidator {
     } on LicenseException catch (e) {
       if (e.error.code == ActivationErrorCode.invalidSession) {
         await _secureStore.delete(kSessionStorageKey);
+        return state;
       }
-      return state;
+      return ValidatorState.awaitingLicence();
     }
 
-    // Re-activate against the currently-assigned licence. A valid session with
-    // no eligible licence (or a transient error) simply stays on onboarding; the
-    // session is kept so a future launch succeeds once a licence is assigned.
+    return _activateExistingSeat(
+        token: token, fingerprint: fingerprint, clientVersion: clientVersion);
+  }
+
+  /// Poll helper for the AWAITING_LICENCE screen: re-checks (existing-seat-only)
+  /// whether a licence has been allocated to this device yet, unlocking the
+  /// moment an admin allocates. Uses the stored session token directly (cheap to
+  /// call repeatedly); a lapsed session surfaces as onboarding (the device must
+  /// sign in again) — mobile sessions are long-lived, so a short wait won't
+  /// expire one.
+  Future<ValidatorState> checkAllocation({
+    required DeviceFingerprint fingerprint,
+    required String clientVersion,
+  }) async {
+    final session = await _secureStore.read(kSessionStorageKey);
+    if (session == null || session.isEmpty) {
+      return ValidatorState.awaitingUserOnboarding();
+    }
+    return _activateExistingSeat(
+        token: session, fingerprint: fingerprint, clientVersion: clientVersion);
+  }
+
+  /// Self-service "Get a licence now": uses the stored session to allocate an
+  /// available seat (allocate=true) and activate. Returns ACTIVATED on success;
+  /// throws [LicenseException] (e.g. capExceeded) for the UI to surface, or
+  /// returns onboarding if the session is gone.
+  Future<ValidatorState> selfAllocate({
+    required DeviceFingerprint fingerprint,
+    required String clientVersion,
+  }) async {
+    final session = await _secureStore.read(kSessionStorageKey);
+    if (session == null || session.isEmpty) {
+      return ValidatorState.awaitingUserOnboarding();
+    }
+    String token = session;
+    try {
+      token = await _auth.refresh(session);
+      await _secureStore.write(kSessionStorageKey, token);
+    } on LicenseException catch (e) {
+      if (e.error.code == ActivationErrorCode.invalidSession) {
+        await _secureStore.delete(kSessionStorageKey);
+        return ValidatorState.awaitingUserOnboarding();
+      }
+      // Transient refresh failure — fall through and try with the existing token.
+    }
+    await activateWithSession(
+        token: token,
+        fingerprint: fingerprint,
+        clientVersion: clientVersion,
+        allocate: true);
+    return _bootstrapAfterActivate();
+  }
+
+  /// Existing-seat-only activation: activates if a seat is already allocated to
+  /// this device. Error mapping:
+  ///   noLicenceAllocated            → AWAITING_LICENCE (wait for an admin)
+  ///   invalidSession                → onboarding (clear the dead session)
+  ///   network/jwks unreachable      → AWAITING_LICENCE (transient; keep waiting)
+  ///   any other terminal code       → error state, so the UI shows the real
+  ///     reason (e.g. no_eligible_license / org_inactive / license_revoked)
+  ///     instead of an endless "waiting for allocation" screen.
+  Future<ValidatorState> _activateExistingSeat({
+    required String token,
+    required DeviceFingerprint fingerprint,
+    required String clientVersion,
+  }) async {
     try {
       await activateWithSession(
-          token: token, fingerprint: fingerprint, clientVersion: clientVersion);
-    } on LicenseException {
-      return state;
+          token: token,
+          fingerprint: fingerprint,
+          clientVersion: clientVersion,
+          allocate: false);
+    } on LicenseException catch (e) {
+      switch (e.error.code) {
+        case ActivationErrorCode.noLicenceAllocated:
+          return ValidatorState.awaitingLicence();
+        case ActivationErrorCode.invalidSession:
+          await _secureStore.delete(kSessionStorageKey);
+          return ValidatorState.awaitingUserOnboarding();
+        case ActivationErrorCode.networkUnreachable:
+        case ActivationErrorCode.jwksUnreachable:
+          return ValidatorState.awaitingLicence();
+        default:
+          return ValidatorState.error(e.error);
+      }
     }
     return bootstrap();
   }
@@ -106,12 +184,14 @@ class LicenseValidator {
     required String token,
     required DeviceFingerprint fingerprint,
     required String clientVersion,
+    bool allocate = true,
   }) async {
     final res = await _activation.activate(
       auth: AuthMode.session(token),
       fingerprint: fingerprint,
       appId: config.expectedAudience,
       clientVersion: clientVersion,
+      allocate: allocate,
     );
     await _secureStore.write(kJwtStorageKey, res.jwt);
     return res;
@@ -197,11 +277,11 @@ class LicenseValidator {
   /// without asking the user to sign in again. The user always ends up released
   /// locally even if the server call fails (offline); an admin can reclaim the
   /// seat. For a full logout that also forgets the session, use [signOut].
-  Future<void> releaseDevice() async {
+  Future<void> releaseDevice({bool removeFromOrg = false}) async {
     final jwt = await _secureStore.read(kJwtStorageKey);
     if (jwt != null) {
       try {
-        await _release.releaseSelf(jwt);
+        await _release.releaseSelf(jwt, removeFromOrg: removeFromOrg);
       } on LicenseException {
         // Best-effort; fall through to the local clear below.
       }

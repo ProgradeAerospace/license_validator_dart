@@ -8,6 +8,7 @@ enum ActivationErrorCode {
   authUnavailable('auth_unavailable'),
   invalidKey('invalid_key'),
   noEligibleLicense('no_eligible_license'),
+  noLicenceAllocated('no_licence_allocated'),
   appNotInLicense('app_not_in_license'),
   capExceeded('cap_exceeded'),
   licenseRevoked('license_revoked'),
@@ -91,6 +92,8 @@ const Map<ActivationErrorCode, (bool, SuggestedAction, String)> _table = {
       (false, SuggestedAction.contactAdmin, 'This license key is not valid. Please contact your administrator.'),
   ActivationErrorCode.noEligibleLicense:
       (false, SuggestedAction.contactAdmin, 'Your organisation has no license for this app. Please contact your administrator.'),
+  ActivationErrorCode.noLicenceAllocated:
+      (true, SuggestedAction.waitAndRetry, 'No licence is allocated to this iPad yet. Waiting for your administrator to allocate one.'),
   ActivationErrorCode.appNotInLicense:
       (false, SuggestedAction.contactAdmin, 'This license does not cover this app. Please contact your administrator.'),
   ActivationErrorCode.capExceeded:

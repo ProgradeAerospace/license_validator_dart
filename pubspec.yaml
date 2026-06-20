@@ -1,6 +1,6 @@
 name: prograde_license_validator
 description: Prograde license validator (wire contract impl) for NavMath/HudSim.
-version: 0.1.0
+version: 0.3.0
 publish_to: none
 environment:
   sdk: ">=3.4.0 <4.0.0"
