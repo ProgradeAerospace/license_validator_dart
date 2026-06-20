@@ -2,6 +2,10 @@ enum SuggestedAction { retry, contactAdmin, signInAgain, releaseDevice, updateAp
 
 enum ActivationErrorCode {
   invalidSession('invalid_session'),
+  invalidCredentials('invalid_credentials'),
+  accountInactive('account_inactive'),
+  orgInactive('org_inactive'),
+  authUnavailable('auth_unavailable'),
   invalidKey('invalid_key'),
   noEligibleLicense('no_eligible_license'),
   appNotInLicense('app_not_in_license'),
@@ -75,6 +79,14 @@ class ActivationError {
 const Map<ActivationErrorCode, (bool, SuggestedAction, String)> _table = {
   ActivationErrorCode.invalidSession:
       (true, SuggestedAction.signInAgain, 'Your session expired. Please sign in again.'),
+  ActivationErrorCode.invalidCredentials:
+      (true, SuggestedAction.retry, 'Incorrect email or password.'),
+  ActivationErrorCode.accountInactive:
+      (false, SuggestedAction.contactAdmin, 'Your account is inactive. Please contact your administrator.'),
+  ActivationErrorCode.orgInactive:
+      (false, SuggestedAction.contactAdmin, "Your organisation's access is suspended. Please contact your administrator."),
+  ActivationErrorCode.authUnavailable:
+      (true, SuggestedAction.waitAndRetry, 'The sign-in service is temporarily unavailable. Please try again shortly.'),
   ActivationErrorCode.invalidKey:
       (false, SuggestedAction.contactAdmin, 'This license key is not valid. Please contact your administrator.'),
   ActivationErrorCode.noEligibleLicense:

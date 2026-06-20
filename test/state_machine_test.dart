@@ -3,6 +3,7 @@ import 'package:prograde_license_validator/src/state_machine.dart';
 import 'package:prograde_license_validator/src/jwt.dart';
 import 'package:prograde_license_validator/src/jwks.dart';
 import 'package:prograde_license_validator/src/storage.dart';
+import 'package:prograde_license_validator/src/errors.dart';
 import 'support/test_keys.dart';
 
 void main() {
@@ -54,6 +55,23 @@ void main() {
       readMdmConfig: () async => null,
     );
     expect((await sm.bootstrap()).phase, ValidatorStatePhase.awaitingUserOnboarding);
+  });
+
+  test('cached JWT with wrong issuer -> ERROR (not silent onboarding)', () async {
+    // Regression: a verification failure (here issuer mismatch) must surface as an
+    // error, not masquerade as a clean first launch routed to onboarding.
+    final jwt = await signer.navmathJwt(
+        iatSec: nowSec - 10, expSec: nowSec + 99999, iss: 'http://192.168.2.52:3000');
+    final store = InMemorySecureStore()..write('license.jwt', jwt);
+    final sm = FirstLaunchStateMachine(
+      secureStore: store,
+      verifier: verifier(),
+      loadJwks: () async => jwks,
+      readMdmConfig: () async => null,
+    );
+    final state = await sm.bootstrap();
+    expect(state.phase, ValidatorStatePhase.error);
+    expect(state.error!.code, ActivationErrorCode.invalidIssuer);
   });
 
   test('MDM config preActivate=false -> AWAITING_USER_ACTIVATION', () async {

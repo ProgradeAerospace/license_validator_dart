@@ -25,4 +25,17 @@ void main() {
     expect(fp.displayName.length, 120);
     expect(fp.toActivationJson()['fingerprint']['vendorIdHash'], fp.vendorIdHash);
   });
+
+  test('copyWith overrides displayName, preserving the hashed vendor id', () {
+    final fp = DeviceFingerprint(
+      platform: 'ios', platformVersion: '17', deviceModel: 'iPad16,1',
+      bundleId: 'aero.prograde.navmath', rawVendorId: 'idfv-1',
+      displayName: 'iPad',
+    );
+    final renamed = fp.copyWith(displayName: "  Hunter's iPad  ");
+    expect(renamed.displayName, "Hunter's iPad"); // trimmed + capped
+    expect(renamed.vendorIdHash, fp.vendorIdHash); // preserved
+    expect(renamed.platform, 'ios');
+    expect(fp.copyWith().displayName, 'iPad'); // null keeps original
+  });
 }
