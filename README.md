@@ -114,7 +114,20 @@ final fingerprint = DeviceFingerprint(
 flutter test
 ```
 
-52 tests covering activation, JWT verification, JWKS caching, state machine, MDM config parsing, storage, errors, and contract conformance fixtures.
+The suite covers activation, JWT verification, JWKS caching, state machine, MDM config parsing, storage, errors, and the canonical cross-package contract fixtures.
+
+---
+
+## Contract fixtures (Pattern #12)
+
+`test/fixtures/fixtures.json` is a **vendored copy** of the canonical cross-package fixture file defined by `license-validator-contract.md` §7 and generated in the portal repo. `test/contract_fixtures_test.dart` runs every fixture: JWT fixtures through `JwtVerifier`/`JwksDocument`, MDM fixtures through `parseMdmConfig`, and HTTP-error fixtures through the `ActivationClient` error mapping. The Swift package (`ProgradeLicenseValidator`) runs the identical file, so both validators are pinned to the same decisions.
+
+Sync procedure (whenever the contract or fixtures change):
+
+1. In the portal repo: `npm run generate-validator-fixtures` (emits `portal/docs/specs/fixtures.json`).
+2. Copy it over `test/fixtures/fixtures.json` here and `Tests/ProgradeLicenseValidatorTests/Resources/fixtures.json` in `ProgradeLicenseValidator`.
+3. Run `flutter test` here and `swift test` in the Swift package.
+4. Commit all three repos in lockstep. Never hand-edit the vendored file.
 
 ---
 
