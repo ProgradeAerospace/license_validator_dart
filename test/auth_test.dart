@@ -98,6 +98,38 @@ void main() {
     }
   });
 
+  test('signIn 403 WAF/edge block (HTML body) -> networkUnreachable, not invalidSession', () async {
+    final c = AuthClient(
+      baseUrl: Uri.parse('https://p'),
+      client: MockClient((_) async => http.Response('<html><body>403 Forbidden</body></html>', 403)),
+    );
+    expect(await code(() => c.signIn(email: 'a', password: 'b')), ActivationErrorCode.networkUnreachable);
+  });
+
+  test('signIn 404 (route missing / wrong host) -> networkUnreachable, not invalidSession', () async {
+    final c = AuthClient(
+      baseUrl: Uri.parse('https://p'),
+      client: MockClient((_) async => http.Response('<html>404</html>', 404)),
+    );
+    expect(await code(() => c.signIn(email: 'a', password: 'b')), ActivationErrorCode.networkUnreachable);
+  });
+
+  test('refresh 403 WAF/edge block -> networkUnreachable (must NOT clear stored session)', () async {
+    final c = AuthClient(
+      baseUrl: Uri.parse('https://p'),
+      client: MockClient((_) async => http.Response('<html>Forbidden</html>', 403)),
+    );
+    expect(await code(() => c.refresh('tok')), ActivationErrorCode.networkUnreachable);
+  });
+
+  test('refresh 401 -> invalidSession (proven-dead session)', () async {
+    final c = AuthClient(
+      baseUrl: Uri.parse('https://p'),
+      client: MockClient((_) async => http.Response(jsonEncode({'error': 'invalid_session'}), 401)),
+    );
+    expect(await code(() => c.refresh('tok')), ActivationErrorCode.invalidSession);
+  });
+
   test('redeemInvite 400 weak_password -> unknown code with "stronger password" message', () async {
     final c = AuthClient(
       baseUrl: Uri.parse('https://p'),

@@ -64,12 +64,11 @@ class AuthClient {
       throw LicenseException(
           ActivationError.fromCode(ActivationErrorCode.invalidSession));
     }
-    if (res.statusCode >= 500) {
-      throw LicenseException(
-          ActivationError.fromCode(ActivationErrorCode.networkUnreachable));
-    }
+    // Any other status (e.g. a 403/404 from a WAF or CDN edge that never
+    // reached the portal) is not a session verdict — treat as unreachable so
+    // callers don't clear a still-valid stored session.
     throw LicenseException(
-        ActivationError.fromCode(ActivationErrorCode.invalidSession));
+        ActivationError.fromCode(ActivationErrorCode.networkUnreachable));
   }
 
   /// Revokes the mobile session server-side (full sign-out). Best-effort: a 401
@@ -159,8 +158,10 @@ class AuthClient {
         userMessage: 'Please check your details and try again.',
       ));
     }
-    // any other non-200 status → treat as session/credential problem
-    throw LicenseException(ActivationError.fromCode(ActivationErrorCode.invalidSession));
+    // Any other non-200 (e.g. a 403/404 served by a WAF or CDN edge, or a
+    // deployment missing this route) never proved anything about the session
+    // or credentials — surface as unreachable, not "session expired".
+    throw LicenseException(ActivationError.fromCode(ActivationErrorCode.networkUnreachable));
   }
 
   /// Extracts the portal's machine error code from a JSON body (`error` or
